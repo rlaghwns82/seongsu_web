@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>성수동 혼잡도 예측</title>
+
+  <!-- ✏️ 수정 포인트: 폰트 바꾸고 싶으면 아래 Google Fonts URL 교체 -->
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+
+  <style>
+    /* ===== 색상 변수 ✏️ 수정 포인트: 컬러 테마 바꾸고 싶으면 여기만 수정 ===== */
+    :root {
+      --bg: #f5f3ef;
+      --surface: #ffffff;
+      --surface2: #f0ede8;
+      --text-primary: #1a1814;
+      --text-secondary: #6b6760;
+      --text-muted: #a09d99;
+      --accent: #c84b2f;       /* 메인 강조색 (혼잡) */
+      --accent-mid: #e8a020;   /* 중간 (보통) */
+      --accent-low: #2d8c5e;   /* 한산 */
+      --border: #e2ddd8;
+      --radius: 16px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      background: var(--bg);
+      color: var(--text-primary);
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    /* ===== 헤더 ===== */
+    .header {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+    .header-tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      background: rgba(200, 75, 47, 0.08);
+      padding: 4px 12px;
+      border-radius: 99px;
+      margin-bottom: 0.75rem;
+    }
+    .header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+    /* ✏️ 수정 포인트: 부제목 텍스트 */
+    .header p {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-top: 8px;
+    }
+
+    /* ===== 레이아웃 ===== */
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      padding: 1.5rem;
+    }
+
+    /* ===== 입력 패널 ===== */
+    .input-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .input-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    /* ✏️ 수정 포인트: select 스타일 */
+    select {
+      width: 100%;
+      padding: 12px 16px;
+      font-family: 'Noto Sans KR', sans-serif;
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text-primary);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      appearance: none;
+      cursor: pointer;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    select:focus { border-color: var(--accent); }
+
+    /* 버튼 */
+    .btn-predict {
+      width: 100%;
+      margin-top: 1rem;
+      padding: 14px;
+      font-family: 'Noto Sans KR', sans-serif;
+      font-size: 15px;
+      font-weight: 700;
+      color: white;
+      /* ✏️ 수정 포인트: 버튼 색 */
+      background: var(--accent);
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      letter-spacing: 0.02em;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn-predict:hover { opacity: 0.88; }
+    .btn-predict:active { transform: scale(0.98); }
+
+    /* ===== 결과 카드 ===== */
+    .result-card {
+      display: none; /* 초기에는 숨김 — 예측 후 표시 */
+    }
+    .result-card.visible { display: block; }
+
+    .score-row {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+    }
+
+    /* 큰 숫자 점수판 */
+    .score-circle {
+      width: 88px;
+      height: 88px;
+      border-radius: 50%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.4s;
+    }
+    .score-circle .num {
+      font-family: 'DM Mono', monospace;
+      font-size: 30px;
+      font-weight: 500;
+      line-height: 1;
+    }
+    .score-circle .unit {
+      font-size: 10px;
+      font-weight: 400;
+      margin-top: 2px;
+      opacity: 0.7;
+    }
+
+    .score-info .level {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .score-info .desc {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+      line-height: 1.5;
+    }
+
+    /* 게이지 바 */
+    .gauge-wrap {
+      margin-top: 1.25rem;
+    }
+    .gauge-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .gauge-bg {
+      height: 8px;
+      background: var(--surface2);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .gauge-fill {
+      height: 100%;
+      border-radius: 99px;
+      transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.4s;
+      width: 0%;
+    }
+
+    /* ===== 추천 시간 ===== */
+    .recommend-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 0;
+    }
+    .rec-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      background: var(--surface2);
+      border-radius: 10px;
+    }
+    .rec-rank {
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--accent-low);
+      width: 24px;
+      flex-shrink: 0;
+    }
+    .rec-time {
+      font-size: 15px;
+      font-weight: 500;
+      flex: 1;
+    }
+    .rec-score {
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* ===== 차트 섹션 ===== */
+    .chart-section { display: none; }
+    .chart-section.visible { display: block; }
+
+    .section-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 1rem;
+    }
+
+    /* ===== 데이터 출처 푸터 ===== */
+    /* ✏️ 수정 포인트: 출처 텍스트 */
+    .footer {
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 1rem 0 0.5rem;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ===== 헤더 ===== -->
+  <div class="header">
+    <div class="header-tag">AI Capstone Design</div>
+    <!-- ✏️ 수정 포인트: 타이틀/부제목 -->
+    <h1>성수동 혼잡도 예측</h1>
+    <p>S-DoT 유동인구 센서 데이터 기반 · 성수1·2가 3개 동</p>
+  </div>
+
+  <div class="container">
+
+    <!-- ===== 입력 카드 ===== -->
+    <div class="card">
+      <div class="input-grid">
+        <div class="input-group">
+          <label>요일 선택</label>
+          <select id="daySelect">
+            <option value="mon">월요일</option>
+            <option value="tue">화요일</option>
+            <option value="wed">수요일</option>
+            <option value="thu">목요일</option>
+            <option value="fri">금요일</option>
+            <option value="sat">토요일</option>
+            <option value="sun">일요일</option>
+          </select>
+        </div>
+        <div class="input-group">
+          <label>시간 선택</label>
+          <select id="hourSelect">
+            <!-- JS로 0~23시 옵션 자동 생성 -->
+          </select>
+        </div>
+      </div>
+      <button class="btn-predict" onclick="predict()">혼잡도 예측하기</button>
+    </div>
+
+    <!-- ===== 결과 카드 ===== -->
+    <div class="card result-card" id="resultCard">
+      <div class="score-row">
+        <div class="score-circle" id="scoreCircle">
+          <span class="num" id="scoreNum">--</span>
+          <span class="unit">/ 100</span>
+        </div>
+        <div class="score-info">
+          <div class="level" id="levelText">--</div>
+          <div class="desc" id="descText">요일과 시간을 선택하고 예측해보세요.</div>
+        </div>
+      </div>
+      <div class="gauge-wrap">
+        <div class="gauge-label">
+          <span>한산</span><span>보통</span><span>혼잡</span>
+        </div>
+        <div class="gauge-bg">
+          <div class="gauge-fill" id="gaugeFill"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 시간대 흐름 차트 ===== -->
+    <div class="card chart-section" id="chartSection">
+      <div class="section-label" id="chartLabel">선택 요일 · 시간대별 혼잡도</div>
+      <div style="position:relative; height:200px;">
+        <canvas id="trendChart" role="img" aria-label="시간대별 혼잡도 추이 차트"></canvas>
+      </div>
+    </div>
+
+    <!-- ===== 추천 시간 TOP3 ===== -->
+    <div class="card chart-section" id="recSection">
+      <div class="section-label">추천 방문 시간 TOP 3</div>
+      <div class="recommend-list" id="recList"></div>
+    </div>
+
+    <!-- ===== 출처 ===== -->
+    <!-- ✏️ 수정 포인트: 데이터 출처 -->
+    <div class="footer">
+      데이터 출처: 서울 열린데이터광장 · 스마트서울 S-DoT 유동인구 측정 정보 (실시간)<br>
+      수집 기간: 2026.04.17 ~ 05.02 · 성수1가1동, 성수1가2동, 성수2가3동
+    </div>
+
+  </div><!-- /container -->
+
+
+  <script>
+    // ================================================
+    // 📊 데이터: 실제 S-DoT 센서 데이터 기반 시간대별 평균 유동인구
+    // (시간 0~23시, 3개 동 합산 평균)
+    // ✏️ 수정 포인트: 데이터 업데이트하려면 아래 배열 값 교체
+    // ================================================
+    const BASE_HOURLY = [
+      11.9, 9.3, 5.8, 3.9, 3.5, 4.8,   // 0~5시
+      7.8, 14.5, 28.5, 38.3, 65.0, 86.8, // 6~11시
+      123.0, 119.4, 110.1, 111.5, 110.9, 115.3, // 12~17시
+      114.0, 94.7, 72.2, 53.4, 35.3, 21.9  // 18~23시
+    ];
+
+    // 요일별 보정 계수 (실제 데이터 기반)
+    // ✏️ 수정 포인트: 요일 가중치 조정 가능
+    const DAY_WEIGHT = {
+      mon: 0.82, tue: 0.92, wed: 0.93,
+      thu: 1.00, fri: 1.41, sat: 0.98, sun: 0.79
+    };
+
+    const DAY_LABEL = {
+      mon:'월요일', tue:'화요일', wed:'수요일',
+      thu:'목요일', fri:'금요일', sat:'토요일', sun:'일요일'
+    };
+
+    // 0~100 점수로 정규화
+    const MAX_VAL = Math.max(...BASE_HOURLY) * Math.max(...Object.values(DAY_WEIGHT));
+    function toScore(raw) {
+      return Math.min(100, Math.round((raw / MAX_VAL) * 100));
+    }
+
+    // 혼잡도 등급 판정
+    // ✏️ 수정 포인트: 등급 기준값 · 텍스트 변경 가능
+    function getLevel(score) {
+      if (score >= 70) return {
+        level: '매우 혼잡', color: '#c84b2f',
+        bg: 'rgba(200,75,47,0.1)', textColor: '#c84b2f',
+        desc: '지금은 매우 붐빕니다. 방문을 피하거나 다른 시간대를 선택하세요.'
+      };
+      if (score >= 45) return {
+        level: '보통', color: '#e8a020',
+        bg: 'rgba(232,160,32,0.1)', textColor: '#e8a020',
+        desc: '적당히 붐빕니다. 여유가 있다면 조금 기다렸다 방문하세요.'
+      };
+      return {
+        level: '한산', color: '#2d8c5e',
+        bg: 'rgba(45,140,94,0.1)', textColor: '#2d8c5e',
+        desc: '지금이 방문하기 좋은 시간입니다!'
+      };
+    }
+
+    // ================================================
+    // 시간 select 옵션 자동 생성
+    // ================================================
+    const hourSelect = document.getElementById('hourSelect');
+    for (let h = 0; h < 24; h++) {
+      const opt = document.createElement('option');
+      opt.value = h;
+      opt.textContent = `${String(h).padStart(2,'0')}:00`;
+      if (h === 12) opt.selected = true;
+      hourSelect.appendChild(opt);
+    }
+
+    // ================================================
+    // 예측 함수 — 버튼 클릭 시 실행
+    // ================================================
+    let trendChartInstance = null;
+
+    function predict() {
+      const day = document.getElementById('daySelect').value;
+      const hour = parseInt(document.getElementById('hourSelect').value);
+      const weight = DAY_WEIGHT[day];
+
+      // 선택 시간 점수
+      const rawScore = BASE_HOURLY[hour] * weight;
+      const score = toScore(rawScore);
+      const info = getLevel(score);
+
+      // 결과 카드 표시
+      document.getElementById('resultCard').classList.add('visible');
+      document.getElementById('chartSection').classList.add('visible');
+      document.getElementById('recSection').classList.add('visible');
+
+      // 점수 업데이트
+      document.getElementById('scoreNum').textContent = score;
+      document.getElementById('levelText').textContent = info.level;
+      document.getElementById('descText').textContent = info.desc;
+
+      // 색상 업데이트
+      const circle = document.getElementById('scoreCircle');
+      circle.style.background = info.bg;
+      circle.querySelector('.num').style.color = info.textColor;
+
+      // 게이지
+      const gauge = document.getElementById('gaugeFill');
+      gauge.style.width = score + '%';
+      gauge.style.background = info.color;
+
+      // 차트 레이블
+      document.getElementById('chartLabel').textContent =
+        `${DAY_LABEL[day]} · 시간대별 혼잡도`;
+
+      // 추천 TOP3 계산
+      const scores24 = BASE_HOURLY.map((v, i) => ({
+        hour: i,
+        score: toScore(v * weight)
+      }));
+
+      // 한산한 시간 중 방문하기 좋은 시간대 (낮 시간 우선: 8~21시 범위)
+      const candidates = scores24
+        .filter(d => d.hour >= 8 && d.hour <= 21)
+        .sort((a, b) => a.score - b.score)
+        .slice(0, 3);
+
+      const recList = document.getElementById('recList');
+      recList.innerHTML = '';
+      candidates.forEach((d, i) => {
+        const lvInfo = getLevel(d.score);
+        recList.innerHTML += `
+          <div class="rec-item">
+            <span class="rec-rank">#${i+1}</span>
+            <span class="rec-time">${String(d.hour).padStart(2,'0')}:00 ~ ${String(d.hour+1).padStart(2,'0')}:00</span>
+            <span class="rec-score" style="color:${lvInfo.color}">${lvInfo.level} · ${d.score}점</span>
+          </div>`;
+      });
+
+      // ================================================
+      // 차트 그리기
+      // ================================================
+      const labels = Array.from({length: 24}, (_, i) => i + '시');
+      const chartScores = scores24.map(d => d.score);
+      const barColors = chartScores.map((s, i) =>
+        i === hour
+          ? info.color          // 선택한 시간 강조
+          : s >= 70 ? 'rgba(200,75,47,0.25)'
+          : s >= 45 ? 'rgba(232,160,32,0.25)'
+          : 'rgba(45,140,94,0.25)'
+      );
+
+      if (trendChartInstance) trendChartInstance.destroy();
+      trendChartInstance = new Chart(document.getElementById('trendChart'), {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            data: chartScores,
+            backgroundColor: barColors,
+            borderRadius: 4,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => {
+                  const s = ctx.raw;
+                  const lv = getLevel(s).level;
+                  return `혼잡도 ${s}점 (${lv})`;
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              ticks: {
+                font: { size: 10, family: "'Noto Sans KR'" },
+                autoSkip: false,
+                maxRotation: 0,
+                // 6시간 간격만 표시
+                callback: (_, i) => i % 6 === 0 ? i + '시' : ''
+              },
+              grid: { display: false }
+            },
+            y: {
+              min: 0, max: 100,
+              ticks: { font: { size: 11 }, stepSize: 25 },
+              grid: { color: 'rgba(0,0,0,0.05)' }
+            }
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
